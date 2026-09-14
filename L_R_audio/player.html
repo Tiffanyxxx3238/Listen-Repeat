@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>L/R 聽力循環播放</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1c2531;
+    --ink-soft:#2c3849;
+    --parchment:#ece4d3;
+    --parchment-dim:#d9cfb8;
+    --amber:#c1873e;
+    --amber-dim:#8a6230;
+    --teal:#5c8a83;
+    --line: rgba(236,228,211,0.14);
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    min-height:100vh;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(92,138,131,0.15), transparent 60%),
+      var(--ink);
+    color:var(--parchment);
+    font-family:'IBM Plex Mono', monospace;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:32px 16px;
+  }
+  .desk{
+    width:100%;
+    max-width:560px;
+  }
+  .eyebrow{
+    font-size:12px;
+    letter-spacing:0.18em;
+    text-transform:uppercase;
+    color:var(--teal);
+    margin-bottom:6px;
+  }
+  h1{
+    font-family:'Fraunces', serif;
+    font-weight:600;
+    font-size:32px;
+    margin:0 0 28px 0;
+    color:var(--parchment);
+  }
+  .card{
+    background:var(--ink-soft);
+    border:1px solid var(--line);
+    border-radius:4px;
+    padding:28px 28px 20px;
+  }
+  .now-playing{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom:4px;
+  }
+  .lesson{
+    font-family:'Fraunces', serif;
+    font-size:22px;
+    font-weight:600;
+    color:var(--amber);
+  }
+  .counter{
+    font-size:13px;
+    color:var(--parchment-dim);
+  }
+  .track-name{
+    font-size:13px;
+    color:var(--parchment-dim);
+    margin-bottom:18px;
+  }
+  .bar-track{
+    height:3px;
+    background:var(--line);
+    border-radius:2px;
+    cursor:pointer;
+    margin-bottom:8px;
+    position:relative;
+  }
+  .bar-fill{
+    height:100%;
+    background:var(--amber);
+    border-radius:2px;
+    width:0%;
+  }
+  .times{
+    display:flex;
+    justify-content:space-between;
+    font-size:11px;
+    color:var(--parchment-dim);
+    margin-bottom:22px;
+  }
+  .controls{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:22px;
+    margin-bottom:22px;
+  }
+  .btn{
+    background:none;
+    border:none;
+    color:var(--parchment);
+    cursor:pointer;
+    font-family:inherit;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .btn svg{ display:block; }
+  .btn.skip{ opacity:0.75; }
+  .btn.skip:hover{ opacity:1; }
+  .btn.play{
+    width:56px; height:56px;
+    background:var(--amber);
+    border-radius:50%;
+    color:var(--ink);
+  }
+  .btn.play:hover{ background:#d69850; }
+  .toggles{
+    display:flex;
+    justify-content:center;
+    gap:10px;
+    margin-bottom:4px;
+  }
+  .toggle{
+    font-size:11px;
+    letter-spacing:0.06em;
+    padding:6px 12px;
+    border:1px solid var(--line);
+    border-radius:20px;
+    background:transparent;
+    color:var(--parchment-dim);
+    cursor:pointer;
+    font-family:'IBM Plex Mono', monospace;
+  }
+  .toggle.active{
+    border-color:var(--amber-dim);
+    color:var(--amber);
+    background:rgba(193,135,62,0.1);
+  }
+  .loops{
+    text-align:center;
+    font-size:11px;
+    color:var(--parchment-dim);
+    margin-top:14px;
+    letter-spacing:0.04em;
+  }
+  .playlist{
+    margin-top:20px;
+    max-height:280px;
+    overflow-y:auto;
+    border-top:1px solid var(--line);
+  }
+  .playlist::-webkit-scrollbar{ width:6px; }
+  .playlist::-webkit-scrollbar-thumb{ background:var(--line); border-radius:3px; }
+  .group-label{
+    font-size:11px;
+    letter-spacing:0.1em;
+    color:var(--teal);
+    padding:12px 4px 4px;
+  }
+  .item{
+    display:flex;
+    justify-content:space-between;
+    padding:7px 4px;
+    font-size:12.5px;
+    color:var(--parchment-dim);
+    cursor:pointer;
+    border-radius:3px;
+  }
+  .item:hover{ background:rgba(236,228,211,0.05); }
+  .item.current{
+    color:var(--amber);
+  }
+  .item .idx{ opacity:0.5; margin-right:8px; }
+  .hint{
+    margin-top:18px;
+    font-size:11.5px;
+    color:var(--parchment-dim);
+    opacity:0.7;
+    line-height:1.6;
+  }
+  .drillbar{
+    margin-top:14px;
+    padding:10px 12px;
+    border:1px solid var(--amber-dim);
+    border-radius:4px;
+    text-align:center;
+    font-size:13px;
+    letter-spacing:0.04em;
+    color:var(--amber);
+    background:rgba(193,135,62,0.08);
+    cursor:pointer;
+  }
+  .drillbar.paused{
+    color:var(--parchment-dim);
+    border-color:var(--line);
+  }
+  .btn.mark svg{ transition: fill 0.15s, color 0.15s; }
+  .btn.mark.active svg{ fill:var(--amber); color:var(--amber); }
+  .item .star{
+    display:inline-block;
+    width:14px;
+    margin-right:4px;
+    cursor:pointer;
+    opacity:0.35;
+  }
+  .item .star.active{ opacity:1; color:var(--amber); }
+  .drillmark{
+    margin-top:8px;
+    text-align:center;
+  }
+  .drillmark button{
+    font-size:12px;
+    padding:5px 10px;
+    border-radius:4px;
+    border:1px solid var(--amber-dim);
+    background:transparent;
+    color:var(--amber);
+    cursor:pointer;
+  }
+  .drillmark button.active{
+    background:var(--amber);
+    color:#1a1a1a;
+  }
+  .storagewarn{
+    margin-top:10px;
+    padding:8px 10px;
+    font-size:11.5px;
+    line-height:1.6;
+    color:#d98c3f;
+    border:1px solid #d98c3f;
+    border-radius:4px;
+    background:rgba(217,140,63,0.08);
+  }
+  .diffio{
+    margin-top:10px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+  }
+  .toggle.small{
+    font-size:11px;
+    padding:5px 9px;
+  }
+  .diffio-box{
+    width:100%;
+    min-height:60px;
+    margin-top:6px;
+    font-size:11px;
+    font-family:inherit;
+    background:rgba(255,255,255,0.03);
+    border:1px solid var(--line);
+    color:var(--parchment);
+    border-radius:4px;
+    padding:6px;
+    resize:vertical;
+  }
+</style>
+</head>
+<body>
+<div class="desk">
+  <div class="eyebrow">L / R Listening &mdash; local loop player</div>
+  <h1>今天，聽多少算多少</h1>
+
+  <div class="card">
+    <div class="now-playing">
+      <span class="lesson" id="lessonName">&mdash;</span>
+      <span class="counter" id="counter">0 / 0</span>
+    </div>
+    <div class="track-name" id="trackName">&nbsp;</div>
+
+    <div class="bar-track" id="barTrack">
+      <div class="bar-fill" id="barFill"></div>
+    </div>
+    <div class="times">
+      <span id="curTime">0:00</span>
+      <span id="durTime">0:00</span>
+    </div>
+
+    <div class="controls">
+      <button class="btn skip" id="prevBtn" title="上一段" aria-label="上一段">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zM20 6v12l-9-6z"/></svg>
+      </button>
+      <button class="btn play" id="playBtn" title="播放/暫停" aria-label="播放/暫停">
+        <svg id="playIcon" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <button class="btn skip" id="nextBtn" title="下一段" aria-label="下一段">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM4 6l9 6-9 6z"/></svg>
+      </button>
+      <button class="btn mark" id="markBtn" title="標記這句困難" aria-label="標記這句困難">
+        <svg id="markIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l2.9 6.9L22 9.7l-5.5 4.8L18 21l-6-4-6 4 1.5-6.5L2 9.7l7.1-.8z"/></svg>
+      </button>
+    </div>
+
+    <div class="toggles">
+      <button class="toggle active" id="loopToggle">循環全部</button>
+      <button class="toggle" id="shuffleToggle">隨機播放</button>
+      <button class="toggle" id="drillToggle">車輪戰模式</button>
+      <button class="toggle" id="difficultToggle">只練困難（<span id="diffCount">0</span>）</button>
+    </div>
+    <div class="loops">已完整循環播放 <span id="loopCount">0</span> 次</div>
+    <div class="storagewarn" id="storageWarn" style="display:none;">
+      ⚠️ 這個瀏覽器沒辦法自動保存標記，關閉分頁後標記會消失。建議每次練完用下面「匯出標記」把清單複製存起來，下次打開先「匯入標記」貼回去。
+    </div>
+    <div class="diffio">
+      <button class="toggle small" id="exportBtn" type="button">匯出標記</button>
+      <button class="toggle small" id="importBtn" type="button">匯入標記</button>
+      <textarea id="diffIoBox" class="diffio-box" style="display:none;" placeholder="匯出的清單會出現在這裡；匯入時把清單貼進來後按下方確認"></textarea>
+      <button class="toggle small" id="importConfirmBtn" type="button" style="display:none;">確認匯入</button>
+    </div>
+    <div class="drillbar" id="drillBar" style="display:none;">
+      <span id="drillState">—</span>
+      <div class="drillmark">
+        <button id="drillMarkBtn" type="button">★ 標記這句困難</button>
+      </div>
+    </div>
+
+    <div class="playlist" id="playlist"></div>
+  </div>
+
+  <div class="hint" id="hintText">開著這個分頁，有空就聽，沒空就切走，音檔會自己一直循環播下去，不用管它。</div>
+</div>
+
+<audio id="audio"></audio>
+
+<script>
+const files = ["LSN001/s1.mp3", "LSN001/s2.mp3", "LSN001/s3.mp3", "LSN001/s4.mp3", "LSN001/s5.mp3", "LSN001/s6.mp3", "LSN001/s7.mp3", "LSN0016/s1.mp3", "LSN0016/s2.mp3", "LSN0016/s3.mp3", "LSN0016/s4.mp3", "LSN0016/s5.mp3", "LSN0016/s6.mp3", "LSN0016/s7.mp3", "LSN0017/s1.mp3", "LSN0017/s2.mp3", "LSN0017/s3.mp3", "LSN0017/s4.mp3", "LSN0017/s5.mp3", "LSN0017/s6.mp3", "LSN0017/s7.mp3", "LSN0018/s1.mp3", "LSN0018/s2.mp3", "LSN0018/s3.mp3", "LSN0018/s4.mp3", "LSN0018/s5.mp3", "LSN0018/s6.mp3", "LSN0018/s7.mp3", "LSN0019 Jewelry Workshop/s1.mp3", "LSN0019 Jewelry Workshop/s2.mp3", "LSN0019 Jewelry Workshop/s3.mp3", "LSN0019 Jewelry Workshop/s4.mp3", "LSN0019 Jewelry Workshop/s5.mp3", "LSN0019 Jewelry Workshop/s6.mp3", "LSN0019 Jewelry Workshop/s7.mp3", "LSN002/s1.mp3", "LSN002/s2.mp3", "LSN002/s3.mp3", "LSN002/s4.mp3", "LSN002/s5.mp3", "LSN002/s6.mp3", "LSN002/s7.mp3", "LSN0020/s1.mp3", "LSN0020/s2.mp3", "LSN0020/s3.mp3", "LSN0020/s4.mp3", "LSN0020/s5.mp3", "LSN0020/s6.mp3", "LSN0020/s7.mp3", "LSN0021/s1.mp3", "LSN0021/s2.mp3", "LSN0021/s3.mp3", "LSN0021/s4.mp3", "LSN0021/s5.mp3", "LSN0021/s6.mp3", "LSN0021/s7.mp3", "LSN003/s1.mp3", "LSN003/s2.mp3", "LSN003/s3.mp3", "LSN003/s4.mp3", "LSN003/s5.mp3", "LSN003/s6.mp3", "LSN003/s7.mp3", "LSN004/s1.mp3", "LSN004/s2.mp3", "LSN004/s3.mp3", "LSN004/s4.mp3", "LSN004/s5.mp3", "LSN004/s6.mp3", "LSN004/s7.mp3", "LSN005/s1.mp3", "LSN005/s2.mp3", "LSN005/s3.mp3", "LSN005/s4.mp3", "LSN005/s5.mp3", "LSN005/s6.mp3", "LSN005/s7.mp3", "LSN006/s1.mp3", "LSN006/s2.mp3", "LSN006/s3.mp3", "LSN006/s4.mp3", "LSN006/s5.mp3", "LSN006/s6.mp3", "LSN006/s7.mp3", "LSN007/s1.mp3", "LSN007/s2.mp3", "LSN007/s3.mp3", "LSN007/s4.mp3", "LSN007/s5.mp3", "LSN007/s6.mp3", "LSN007/s7.mp3", "LSN008/s1.mp3", "LSN008/s2.mp3", "LSN008/s3.mp3", "LSN008/s4.mp3", "LSN008/s5.mp3", "LSN008/s6.mp3", "LSN008/s7.mp3", "LSN009/s1.mp3", "LSN009/s2.mp3", "LSN009/s3.mp3", "LSN009/s4.mp3", "LSN009/s5.mp3", "LSN009/s6.mp3", "LSN009/s7.mp3", "LSN010/s1.mp3", "LSN010/s2.mp3", "LSN010/s3.mp3", "LSN010/s4.mp3", "LSN010/s5.mp3", "LSN010/s6.mp3", "LSN010/s7.mp3", "LSN011/s1.mp3", "LSN011/s2.mp3", "LSN011/s3.mp3", "LSN011/s4.mp3", "LSN011/s5.mp3", "LSN011/s6.mp3", "LSN011/s7.mp3", "LSN012/s1.mp3", "LSN012/s2.mp3", "LSN012/s3.mp3", "LSN012/s4.mp3", "LSN012/s5.mp3", "LSN012/s6.mp3", "LSN012/s7.mp3", "LSN013/s1.mp3", "LSN013/s2.mp3", "LSN013/s3.mp3", "LSN013/s4.mp3", "LSN013/s5.mp3", "LSN013/s6.mp3", "LSN013/s7.mp3", "LSN014/s1.mp3", "LSN014/s2.mp3", "LSN014/s3.mp3", "LSN014/s4.mp3", "LSN014/s5.mp3", "LSN014/s6.mp3", "LSN014/s7.mp3", "LSN015/s1.mp3", "LSN015/s2.mp3", "LSN015/s3.mp3", "LSN015/s4.mp3", "LSN015/s5.mp3", "LSN015/s6.mp3", "LSN015/s7.mp3", "M001/s1.mp3", "M001/s2.mp3", "M001/s3.mp3", "M001/s4.mp3", "M001/s5.mp3", "M001/s6.mp3", "M001/s7.mp3", "PT3/s1.mp3", "PT3/s2.mp3", "PT3/s3.mp3", "PT3/s4.mp3", "PT3/s5.mp3", "PT3/s6.mp3", "PT3/s7.mp3", "MOCK1/s1.mp3", "MOCK1/s2.mp3", "MOCK1/s3.mp3", "MOCK1/s4.mp3", "MOCK1/s5.mp3", "MOCK1/s6.mp3", "MOCK1/s7.mp3", "MOCK2/s1.mp3", "MOCK2/s2.mp3", "MOCK2/s3.mp3", "MOCK2/s4.mp3", "MOCK2/s5.mp3", "MOCK2/s6.mp3", "MOCK2/s7.mp3", "CAR/car_seed55_12_af1.mp3", "CAR/car_seed8_11_am2.mp3", "CAR/car_seed90_11_bf1.mp3", "CAR/car_seed90_12_am2.mp3", "MOCK3/s1.mp3", "MOCK3/s2.mp3", "MOCK3/s3.mp3", "MOCK3/s4.mp3", "MOCK3/s5.mp3", "MOCK3/s6.mp3", "MOCK3/s7.mp3", "MOCK5/s1.mp3", "MOCK5/s2.mp3", "MOCK5/s3.mp3", "MOCK5/s4.mp3", "MOCK5/s5.mp3", "MOCK5/s6.mp3", "MOCK5/s7.mp3", "MOCK6/s1.mp3", "MOCK6/s2.mp3", "MOCK6/s3.mp3", "MOCK6/s4.mp3", "MOCK6/s5.mp3", "MOCK6/s6.mp3", "MOCK6/s7.mp3", "MOCK7/s1.mp3","MOCK7/s2.mp3","MOCK7/s3.mp3","MOCK7/s4.mp3","MOCK7/s5.mp3","MOCK7/s6.mp3","MOCK7/s7.mp3", "MOCK8/s1.mp3","MOCK8/s2.mp3","MOCK8/s3.mp3","MOCK8/s4.mp3","MOCK8/s5.mp3","MOCK8/s6.mp3","MOCK8/s7.mp3", "MOCK9/s1.mp3","MOCK9/s2.mp3","MOCK9/s3.mp3","MOCK9/s4.mp3","MOCK9/s5.mp3","MOCK9/s6.mp3","MOCK9/s7.mp3", "MOCK10/s1.mp3","MOCK10/s2.mp3","MOCK10/s3.mp3","MOCK10/s4.mp3","MOCK10/s5.mp3","MOCK10/s6.mp3","MOCK10/s7.mp3"];
+
+const audio = document.getElementById('audio');
+const playBtn = document.getElementById('playBtn');
+const playIcon = document.getElementById('playIcon');
+const prevBtn = document.getElementById('prevBtn');
+const nextBtn = document.getElementById('nextBtn');
+const barTrack = document.getElementById('barTrack');
+const barFill = document.getElementById('barFill');
+const curTimeEl = document.getElementById('curTime');
+const durTimeEl = document.getElementById('durTime');
+const lessonEl = document.getElementById('lessonName');
+const trackEl = document.getElementById('trackName');
+const counterEl = document.getElementById('counter');
+const loopToggle = document.getElementById('loopToggle');
+const shuffleToggle = document.getElementById('shuffleToggle');
+const drillToggle = document.getElementById('drillToggle');
+const drillBar = document.getElementById('drillBar');
+const drillState = document.getElementById('drillState');
+const hintText = document.getElementById('hintText');
+const difficultToggle = document.getElementById('difficultToggle');
+const diffCountEl = document.getElementById('diffCount');
+const markBtn = document.getElementById('markBtn');
+const markIcon = document.getElementById('markIcon');
+const drillMarkBtn = document.getElementById('drillMarkBtn');
+const storageWarn = document.getElementById('storageWarn');
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const diffIoBox = document.getElementById('diffIoBox');
+const importConfirmBtn = document.getElementById('importConfirmBtn');
+const loopCountEl = document.getElementById('loopCount');
+const playlistEl = document.getElementById('playlist');
+
+let order = files.map((_, i) => i);
+let pos = 0;
+let shuffle = false;
+let difficultOnly = false;
+let loopAll = true;
+let completedLoops = 0;
+let drillMode = false;
+let drillGapMs = 5000;
+let drillInGap = false;      // true while waiting between plays (counting or paused)
+let drillPaused = false;     // true if the gap countdown itself is paused
+let drillGapEndAt = 0;
+let drillPauseRemainMs = 0;
+let drillPhaseAfter = null;  // 'replay' or 'next'
+let drillTick = null;
+
+const DIFF_KEY = 'lr_difficult_v1';
+let difficultSet = new Set();
+let storageOK = false;
+try {
+  const testKey = '__lr_test__';
+  localStorage.setItem(testKey, '1');
+  localStorage.removeItem(testKey);
+  storageOK = true;
+} catch(e){ storageOK = false; }
+
+if(storageOK){
+  try {
+    const saved = JSON.parse(localStorage.getItem(DIFF_KEY) || '[]');
+    difficultSet = new Set(saved);
+  } catch(e){ difficultSet = new Set(); }
+} else {
+  storageWarn.style.display = 'block';
+}
+
+function saveDifficult(){
+  if(storageOK){
+    try { localStorage.setItem(DIFF_KEY, JSON.stringify([...difficultSet])); } catch(e){}
+  }
+  diffCountEl.textContent = difficultSet.size;
+}
+
+function isMarked(path){ return difficultSet.has(path); }
+
+function toggleMark(path){
+  if(difficultSet.has(path)) difficultSet.delete(path); else difficultSet.add(path);
+  saveDifficult();
+  updateMarkUI();
+  buildPlaylist();
+}
+
+function updateMarkUI(){
+  const path = files[order[pos]];
+  const marked = isMarked(path);
+  markBtn.classList.toggle('active', marked);
+  drillMarkBtn.classList.toggle('active', marked);
+  drillMarkBtn.textContent = marked ? '★ 已標記困難（點擊取消）' : '★ 標記這句困難';
+}
+
+function shuffleArray(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [a[i],a[j]] = [a[j],a[i]];
+  }
+  return a;
+}
+
+function lessonOf(path){ const p = path.split('/'); return p[p.length-2]; }
+function segOf(path){ const p = path.split('/'); return p[p.length-1].replace('.mp3',''); }
+
+function buildPlaylist(){
+  playlistEl.innerHTML = '';
+  let lastGroup = null;
+  order.forEach((fileIdx, i) => {
+    const path = files[fileIdx];
+    const group = lessonOf(path);
+    if(group !== lastGroup){
+      const label = document.createElement('div');
+      label.className = 'group-label';
+      label.textContent = group;
+      playlistEl.appendChild(label);
+      lastGroup = group;
+    }
+    const item = document.createElement('div');
+    item.className = 'item' + (i === pos ? ' current' : '');
+    item.dataset.pos = i;
+    const marked = isMarked(path);
+    item.innerHTML = '<span><span class="star' + (marked ? ' active' : '') + '" data-path="' + path + '">\u2605</span><span class="idx">' + segOf(path) + '</span>' + group + '</span>';
+    item.addEventListener('click', (e) => {
+      if(e.target.classList.contains('star')){
+        e.stopPropagation();
+        toggleMark(path);
+        return;
+      }
+      pos = i; loadTrack(); play();
+    });
+    playlistEl.appendChild(item);
+  });
+}
+
+function fmt(t){
+  if(!isFinite(t)) return '0:00';
+  const m = Math.floor(t/60);
+  const s = Math.floor(t%60).toString().padStart(2,'0');
+  return m + ':' + s;
+}
+
+function loadTrack(){
+  const fileIdx = order[pos];
+  const path = files[fileIdx];
+  audio.src = path;
+  lessonEl.textContent = lessonOf(path);
+  trackEl.textContent = segOf(path) + '.mp3';
+  counterEl.textContent = (pos+1) + ' / ' + order.length;
+  document.title = lessonOf(path) + ' · ' + segOf(path);
+  [...playlistEl.querySelectorAll('.item')].forEach(el => {
+    el.classList.toggle('current', Number(el.dataset.pos) === pos);
+  });
+  const cur = playlistEl.querySelector('.item.current');
+  if(cur) cur.scrollIntoView({block:'nearest'});
+  updateMarkUI();
+}
+
+function play(){
+  audio.play();
+  playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+}
+function pause(){
+  audio.pause();
+  playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+}
+
+let drillAttempt = 1; // 1 = 準備播第一次/剛播完第一次, 2 = 剛播完第二次
+
+function gapLabel(){
+  return drillAttempt === 1 ? '第一次 · 換你講' : '第二次 · 憑殘存印象再講一次';
+}
+
+function updateGapDisplay(){
+  const remain = Math.max(0, drillGapEndAt - Date.now());
+  const secs = Math.ceil(remain/1000);
+  drillState.textContent = gapLabel() + ' · ' + secs + 's';
+  if(remain <= 0){
+    clearInterval(drillTick);
+    drillInGap = false;
+    if(drillPhaseAfter === 'replay'){
+      drillAttempt = 2;
+      drillState.textContent = '播放第二次…';
+      audio.currentTime = 0;
+      play();
+    } else {
+      drillAttempt = 1;
+      drillState.textContent = '換下一句…';
+      goNext(true);
+    }
+  }
+}
+
+function beginGap(afterAction){
+  drillPhaseAfter = afterAction;
+  drillInGap = true;
+  drillPaused = false;
+  drillGapEndAt = Date.now() + drillGapMs;
+  clearInterval(drillTick);
+  updateGapDisplay();
+  drillTick = setInterval(updateGapDisplay, 200);
+  playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>'; // 顯示暫停圖示，因為「正在進行中」
+  drillBar.classList.remove('paused');
+}
+
+function pauseGap(){
+  drillPaused = true;
+  drillPauseRemainMs = Math.max(0, drillGapEndAt - Date.now());
+  clearInterval(drillTick);
+  const secs = Math.ceil(drillPauseRemainMs/1000);
+  drillState.textContent = '已暫停（' + gapLabel() + ' · 剩 ' + secs + 's）';
+  drillBar.classList.add('paused');
+  playIcon.innerHTML = '<path d="M8 5v14l11-7z"/>'; // 顯示播放圖示
+}
+
+function resumeGap(){
+  drillPaused = false;
+  drillGapEndAt = Date.now() + drillPauseRemainMs;
+  clearInterval(drillTick);
+  updateGapDisplay();
+  drillTick = setInterval(updateGapDisplay, 200);
+  drillBar.classList.remove('paused');
+  playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+}
+
+function resetDrillProgress(){
+  drillAttempt = 1;
+  drillInGap = false;
+  drillPaused = false;
+  drillPhaseAfter = null;
+  clearInterval(drillTick);
+  if(drillMode){
+    drillState.textContent = '播放中…';
+    drillBar.classList.remove('paused');
+  }
+}
+
+drillBar.addEventListener('click', () => {
+  if(!drillMode || !drillInGap) return;
+  if(drillPaused) resumeGap(); else pauseGap();
+});
+
+playBtn.addEventListener('click', () => {
+  if(drillMode && drillInGap){
+    if(drillPaused) resumeGap(); else pauseGap();
+    return;
+  }
+  if(audio.paused) play(); else pause();
+});
+
+function goNext(auto){
+  resetDrillProgress();
+  pos++;
+  if(pos >= order.length){
+    pos = 0;
+    completedLoops++;
+    loopCountEl.textContent = completedLoops;
+    if(!loopAll){ pause(); }
+  }
+  loadTrack();
+  if(!auto || loopAll || pos !== 0) play();
+}
+function goPrev(){
+  resetDrillProgress();
+  pos = (pos - 1 + order.length) % order.length;
+  loadTrack();
+  play();
+}
+nextBtn.addEventListener('click', () => goNext(false));
+prevBtn.addEventListener('click', goPrev);
+
+audio.addEventListener('ended', () => {
+  if(drillMode){
+    beginGap(drillAttempt === 1 ? 'replay' : 'next');
+  } else {
+    goNext(true);
+  }
+});
+audio.addEventListener('timeupdate', () => {
+  const pct = (audio.currentTime / audio.duration) * 100 || 0;
+  barFill.style.width = pct + '%';
+  curTimeEl.textContent = fmt(audio.currentTime);
+});
+audio.addEventListener('loadedmetadata', () => {
+  durTimeEl.textContent = fmt(audio.duration);
+});
+barTrack.addEventListener('click', (e) => {
+  const rect = barTrack.getBoundingClientRect();
+  const pct = (e.clientX - rect.left) / rect.width;
+  audio.currentTime = pct * audio.duration;
+});
+
+loopToggle.addEventListener('click', () => {
+  loopAll = !loopAll;
+  loopToggle.classList.toggle('active', loopAll);
+});
+drillToggle.addEventListener('click', () => {
+  drillMode = !drillMode;
+  resetDrillProgress();
+  drillToggle.classList.toggle('active', drillMode);
+  drillBar.style.display = drillMode ? 'block' : 'none';
+  drillState.textContent = drillMode ? '播放中…' : '—';
+  hintText.textContent = drillMode
+    ? '每句會播兩次：第一次播完停 5 秒讓你講，接著原句再播一次，停 5 秒讓你憑殘存印象再講一次，講完才換下一句（隨機）。倒數期間按播放鍵（或點狀態列）可以暫停/繼續，不會被強制推進。'
+    : '開著這個分頁，有空就聽，沒空就切走，音檔會自己一直循環播下去，不用管它。';
+  if(drillMode && !shuffle){
+    shuffleToggle.click();
+  }
+});
+function currentPool(){
+  let idxs = files.map((_,i)=>i);
+  if(difficultOnly){ idxs = idxs.filter(i => difficultSet.has(files[i])); }
+  return idxs;
+}
+
+function rebuildOrder(){
+  const currentFileIdx = order.length ? order[pos] : undefined;
+  let idxs = currentPool();
+  if(idxs.length === 0){ idxs = files.map((_,i)=>i); } // 沒東西可練時退回全部，避免播放器空掉
+  order = shuffle ? shuffleArray(idxs) : idxs;
+  let newPos = order.indexOf(currentFileIdx);
+  pos = newPos === -1 ? 0 : newPos;
+  buildPlaylist();
+  loadTrack();
+}
+
+shuffleToggle.addEventListener('click', () => {
+  shuffle = !shuffle;
+  shuffleToggle.classList.toggle('active', shuffle);
+  rebuildOrder();
+});
+
+difficultToggle.addEventListener('click', () => {
+  if(!difficultOnly && difficultSet.size === 0){
+    alert('目前還沒有標記任何困難句，先在播放時點星星或按「標記這句困難」標記幾句，再開啟這個模式。');
+    return;
+  }
+  difficultOnly = !difficultOnly;
+  difficultToggle.classList.toggle('active', difficultOnly);
+  if(difficultOnly && !drillMode){
+    drillToggle.click();
+  }
+  rebuildOrder();
+});
+
+markBtn.addEventListener('click', () => {
+  toggleMark(files[order[pos]]);
+});
+
+drillMarkBtn.addEventListener('click', () => {
+  toggleMark(files[order[pos]]);
+});
+
+exportBtn.addEventListener('click', () => {
+  const text = JSON.stringify([...difficultSet], null, 0);
+  diffIoBox.value = text;
+  diffIoBox.style.display = 'block';
+  importConfirmBtn.style.display = 'none';
+  diffIoBox.select();
+  try {
+    navigator.clipboard.writeText(text);
+    exportBtn.textContent = '已複製到剪貼簿 ✓';
+  } catch(e){
+    exportBtn.textContent = '請手動複製下面的文字';
+  }
+  setTimeout(() => { exportBtn.textContent = '匯出標記'; }, 2500);
+});
+
+importBtn.addEventListener('click', () => {
+  diffIoBox.value = '';
+  diffIoBox.placeholder = '把之前匯出的清單貼在這裡，再按下方「確認匯入」';
+  diffIoBox.style.display = 'block';
+  importConfirmBtn.style.display = 'inline-block';
+  diffIoBox.focus();
+});
+
+importConfirmBtn.addEventListener('click', () => {
+  try {
+    const arr = JSON.parse(diffIoBox.value.trim());
+    if(!Array.isArray(arr)) throw new Error('not array');
+    arr.forEach(p => { if(typeof p === 'string') difficultSet.add(p); });
+    saveDifficult();
+    buildPlaylist();
+    updateMarkUI();
+    diffIoBox.style.display = 'none';
+    importConfirmBtn.style.display = 'none';
+    alert('匯入完成，目前共標記 ' + difficultSet.size + ' 句困難句。');
+  } catch(e){
+    alert('這段文字看起來不是有效的標記清單，請確認貼上的是「匯出標記」產生的內容。');
+  }
+});
+
+diffCountEl.textContent = difficultSet.size;
+buildPlaylist();
+loadTrack();
+</script>
+</body>
+</html>
