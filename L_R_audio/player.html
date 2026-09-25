@@ -265,6 +265,84 @@
     padding:6px;
     resize:vertical;
   }
+
+  /* 2 + 10 Sprint Mode */
+  .sprint-panel{
+    margin-top:12px;
+    padding:18px 16px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:rgba(255,255,255,0.025);
+  }
+  .sprint-top{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    margin-bottom:12px;
+  }
+  .sprint-phase{
+    font-size:12px;
+    letter-spacing:.12em;
+    color:var(--teal);
+  }
+  .sprint-countdown{
+    font-family:'Fraunces', serif;
+    font-size:38px;
+    line-height:1;
+    color:var(--amber);
+    min-width:88px;
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .sprint-note{
+    width:100%;
+    min-height:58px;
+    border:1px solid var(--line);
+    border-radius:4px;
+    background:rgba(0,0,0,.12);
+    color:var(--parchment);
+    padding:10px;
+    font:13px/1.45 'IBM Plex Mono', monospace;
+    resize:none;
+    outline:none;
+  }
+  .sprint-note:focus{ border-color:var(--amber-dim); }
+  .sprint-note[readonly]{ opacity:.78; }
+  .sprint-meta{
+    margin-top:7px;
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    color:var(--parchment-dim);
+    font-size:10.5px;
+  }
+  .sprint-rating{
+    display:none;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:12px;
+  }
+  .rate-btn{
+    border:1px solid var(--line);
+    background:transparent;
+    color:var(--parchment);
+    border-radius:4px;
+    padding:9px 6px;
+    cursor:pointer;
+    font:11px 'IBM Plex Mono', monospace;
+  }
+  .rate-btn:hover{ border-color:var(--amber-dim); color:var(--amber); }
+  .sprint-stats{
+    margin-top:10px;
+    font-size:10.5px;
+    line-height:1.6;
+    color:var(--parchment-dim);
+  }
+  .sprint-locked{
+    pointer-events:none;
+    opacity:.35;
+  }
 </style>
 </head>
 <body>
@@ -306,6 +384,7 @@
       <button class="toggle active" id="loopToggle">循環全部</button>
       <button class="toggle" id="shuffleToggle">隨機播放</button>
       <button class="toggle" id="drillToggle">車輪戰模式</button>
+      <button class="toggle" id="sprintToggle">2+10 Sprint</button>
       <button class="toggle" id="difficultToggle">只練困難（<span id="diffCount">0</span>）</button>
     </div>
     <div class="loops">已完整循環播放 <span id="loopCount">0</span> 次</div>
@@ -323,6 +402,27 @@
       <div class="drillmark">
         <button id="drillMarkBtn" type="button">★ 標記這句困難</button>
       </div>
+    </div>
+
+    <div class="sprint-panel" id="sprintPanel" style="display:none;">
+      <div class="sprint-top">
+        <div>
+          <div class="sprint-phase" id="sprintPhase">READY</div>
+          <div style="font-size:11px;color:var(--parchment-dim);margin-top:4px;" id="sprintInstruction">播放音檔後，系統會自動進入 2 秒筆記與 10 秒口說。</div>
+        </div>
+        <div class="sprint-countdown" id="sprintCountdown">—</div>
+      </div>
+      <textarea class="sprint-note" id="sprintNote" maxlength="30" disabled placeholder="2 秒內只記關鍵字（最多 30 字元）"></textarea>
+      <div class="sprint-meta">
+        <span id="noteChars">0 / 30</span>
+        <span>1 完整｜2 漏資訊｜3 卡住</span>
+      </div>
+      <div class="sprint-rating" id="sprintRating">
+        <button class="rate-btn" data-rate="1">1 · ✅ 完整講完</button>
+        <button class="rate-btn" data-rate="2">2 · 🟡 有漏資訊</button>
+        <button class="rate-btn" data-rate="3">3 · 🔴 卡住</button>
+      </div>
+      <div class="sprint-stats" id="sprintStats">本次：0 題｜✅ 0　🟡 0　🔴 0</div>
     </div>
 
     <div class="playlist" id="playlist"></div>
@@ -351,6 +451,15 @@ const counterEl = document.getElementById('counter');
 const loopToggle = document.getElementById('loopToggle');
 const shuffleToggle = document.getElementById('shuffleToggle');
 const drillToggle = document.getElementById('drillToggle');
+const sprintToggle = document.getElementById('sprintToggle');
+const sprintPanel = document.getElementById('sprintPanel');
+const sprintPhaseEl = document.getElementById('sprintPhase');
+const sprintInstructionEl = document.getElementById('sprintInstruction');
+const sprintCountdownEl = document.getElementById('sprintCountdown');
+const sprintNote = document.getElementById('sprintNote');
+const noteChars = document.getElementById('noteChars');
+const sprintRating = document.getElementById('sprintRating');
+const sprintStats = document.getElementById('sprintStats');
 const drillBar = document.getElementById('drillBar');
 const drillState = document.getElementById('drillState');
 const hintText = document.getElementById('hintText');
@@ -381,6 +490,15 @@ let drillGapEndAt = 0;
 let drillPauseRemainMs = 0;
 let drillPhaseAfter = null;  // 'replay' or 'next'
 let drillTick = null;
+
+// 2 + 10 Sprint state
+let sprintMode = false;
+let sprintPhase = 'idle'; // idle | listen | note | speak | rate
+let sprintTimer = null;
+let sprintPhaseEndAt = 0;
+const NOTE_MS = 2000;
+const SPEAK_MS = 10000;
+let sprintResult = { total:0, ok:0, miss:0, stuck:0 };
 
 const DIFF_KEY = 'lr_difficult_v1';
 let difficultSet = new Set();
@@ -488,9 +606,160 @@ function loadTrack(){
   const cur = playlistEl.querySelector('.item.current');
   if(cur) cur.scrollIntoView({block:'nearest'});
   updateMarkUI();
+  if(sprintMode && sprintPhase !== 'note' && sprintPhase !== 'speak' && sprintPhase !== 'rate'){
+    startSprintListen();
+  }
 }
 
+function stopSprintTimer(){
+  clearInterval(sprintTimer);
+  sprintTimer = null;
+}
+
+function sprintBeep(freq=700, duration=0.09){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.frequency.value = freq;
+    gain.gain.value = 0.045;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + duration);
+    osc.onended = () => ctx.close();
+  }catch(e){}
+}
+
+function setSprintNavigationLocked(locked){
+  prevBtn.classList.toggle('sprint-locked', locked);
+  nextBtn.classList.toggle('sprint-locked', locked);
+  barTrack.classList.toggle('sprint-locked', locked);
+}
+
+function updateSprintStats(){
+  sprintStats.textContent =
+    '本次：' + sprintResult.total + ' 題｜✅ ' + sprintResult.ok +
+    '　🟡 ' + sprintResult.miss + '　🔴 ' + sprintResult.stuck;
+}
+
+function setSprintDisplay(phase, instruction, countdown='—'){
+  sprintPhase = phase;
+  sprintPhaseEl.textContent = phase.toUpperCase();
+  sprintInstructionEl.textContent = instruction;
+  sprintCountdownEl.textContent = countdown;
+}
+
+function runSprintCountdown(ms, onTickDone){
+  stopSprintTimer();
+  sprintPhaseEndAt = performance.now() + ms;
+  const tick = () => {
+    const remain = Math.max(0, sprintPhaseEndAt - performance.now());
+    sprintCountdownEl.textContent = (remain / 1000).toFixed(1);
+    if(remain <= 0){
+      stopSprintTimer();
+      onTickDone();
+    }
+  };
+  tick();
+  sprintTimer = setInterval(tick, 50);
+}
+
+function startSprintListen(){
+  if(!sprintMode) return;
+  stopSprintTimer();
+  sprintRating.style.display = 'none';
+  sprintNote.value = '';
+  noteChars.textContent = '0 / 30';
+  sprintNote.disabled = true;
+  sprintNote.readOnly = false;
+  setSprintNavigationLocked(true);
+  setSprintDisplay('listen', '只聽一次。音檔結束後立刻進入 2 秒筆記。');
+}
+
+function startSprintNote(){
+  if(!sprintMode) return;
+  sprintBeep(820, .07);
+  sprintNote.disabled = false;
+  sprintNote.readOnly = false;
+  sprintNote.value = '';
+  noteChars.textContent = '0 / 30';
+  sprintNote.focus();
+  setSprintDisplay('note', '2 秒：只寫關鍵字，不要寫完整句。', '2.0');
+  runSprintCountdown(NOTE_MS, startSprintSpeak);
+}
+
+function startSprintSpeak(){
+  if(!sprintMode) return;
+  sprintBeep(1050, .09);
+  sprintNote.blur();
+  sprintNote.readOnly = true;
+  sprintNote.disabled = false;
+  setSprintDisplay('speak', '現在說。你可以看剛才的關鍵字，但 10 秒內要完成。', '10.0');
+  runSprintCountdown(SPEAK_MS, finishSprintSpeak);
+}
+
+function finishSprintSpeak(){
+  if(!sprintMode) return;
+  sprintBeep(520, .13);
+  setSprintDisplay('rate', '時間到。按 1 / 2 / 3 自評，然後立即進下一題。', '0.0');
+  sprintRating.style.display = 'grid';
+}
+
+function submitSprintRating(rate){
+  if(!sprintMode || sprintPhase !== 'rate') return;
+  sprintResult.total++;
+  if(rate === 1) sprintResult.ok++;
+  if(rate === 2) sprintResult.miss++;
+  if(rate === 3){
+    sprintResult.stuck++;
+    const path = files[order[pos]];
+    difficultSet.add(path);
+    saveDifficult();
+    updateMarkUI();
+    buildPlaylist();
+  }
+  updateSprintStats();
+  sprintRating.style.display = 'none';
+  sprintNote.disabled = true;
+  sprintNote.readOnly = false;
+  setSprintDisplay('listen', '下一題…');
+  goNext(true);
+}
+
+function resetSprintProgress(){
+  stopSprintTimer();
+  sprintPhase = 'idle';
+  sprintRating.style.display = 'none';
+  sprintNote.disabled = true;
+  sprintNote.readOnly = false;
+  sprintNote.value = '';
+  noteChars.textContent = '0 / 30';
+  sprintCountdownEl.textContent = '—';
+  setSprintNavigationLocked(sprintMode);
+}
+
+sprintNote.addEventListener('input', () => {
+  noteChars.textContent = sprintNote.value.length + ' / 30';
+});
+
+[...sprintRating.querySelectorAll('.rate-btn')].forEach(btn => {
+  btn.addEventListener('click', () => submitSprintRating(Number(btn.dataset.rate)));
+});
+
+document.addEventListener('keydown', (e) => {
+  if(!sprintMode || sprintPhase !== 'rate') return;
+  if(['1','2','3'].includes(e.key)){
+    e.preventDefault();
+    submitSprintRating(Number(e.key));
+  }
+});
+
 function play(){
+  if(sprintMode && (sprintPhase === 'note' || sprintPhase === 'speak' || sprintPhase === 'rate')) return;
+  if(sprintMode) startSprintListen();
   audio.play();
   playIcon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
 }
@@ -575,6 +844,7 @@ drillBar.addEventListener('click', () => {
 });
 
 playBtn.addEventListener('click', () => {
+  if(sprintMode && (sprintPhase === 'note' || sprintPhase === 'speak' || sprintPhase === 'rate')) return;
   if(drillMode && drillInGap){
     if(drillPaused) resumeGap(); else pauseGap();
     return;
@@ -600,11 +870,19 @@ function goPrev(){
   loadTrack();
   play();
 }
-nextBtn.addEventListener('click', () => goNext(false));
-prevBtn.addEventListener('click', goPrev);
+nextBtn.addEventListener('click', () => {
+  if(sprintMode) return;
+  goNext(false);
+});
+prevBtn.addEventListener('click', () => {
+  if(sprintMode) return;
+  goPrev();
+});
 
 audio.addEventListener('ended', () => {
-  if(drillMode){
+  if(sprintMode){
+    startSprintNote();
+  } else if(drillMode){
     beginGap(drillAttempt === 1 ? 'replay' : 'next');
   } else {
     goNext(true);
@@ -619,6 +897,7 @@ audio.addEventListener('loadedmetadata', () => {
   durTimeEl.textContent = fmt(audio.duration);
 });
 barTrack.addEventListener('click', (e) => {
+  if(sprintMode) return;
   const rect = barTrack.getBoundingClientRect();
   const pct = (e.clientX - rect.left) / rect.width;
   audio.currentTime = pct * audio.duration;
@@ -628,7 +907,41 @@ loopToggle.addEventListener('click', () => {
   loopAll = !loopAll;
   loopToggle.classList.toggle('active', loopAll);
 });
+sprintToggle.addEventListener('click', () => {
+  sprintMode = !sprintMode;
+
+  // Sprint 與車輪戰互斥，避免兩套 timer 同時運作
+  if(sprintMode && drillMode){
+    drillMode = false;
+    resetDrillProgress();
+    drillToggle.classList.remove('active');
+    drillBar.style.display = 'none';
+  }
+
+  sprintToggle.classList.toggle('active', sprintMode);
+  sprintPanel.style.display = sprintMode ? 'block' : 'none';
+  resetSprintProgress();
+
+  if(sprintMode){
+    sprintResult = { total:0, ok:0, miss:0, stuck:0 };
+    updateSprintStats();
+    setSprintDisplay('ready', '按播放開始。之後每題：聽一次 → 2 秒筆記 → 10 秒口說 → 1/2/3 自評。');
+    hintText.textContent = 'Sprint：音檔只播一次；音檔結束後只有 2 秒記關鍵字，再用 10 秒完成口說。倒數期間不能拖進度、上一題或下一題。';
+    if(!audio.paused) startSprintListen();
+  } else {
+    setSprintNavigationLocked(false);
+    setSprintDisplay('idle', '');
+    hintText.textContent = '開著這個分頁，有空就聽，沒空就切走，音檔會自己一直循環播下去，不用管它。';
+  }
+});
+
 drillToggle.addEventListener('click', () => {
+  if(sprintMode){
+    sprintMode = false;
+    sprintToggle.classList.remove('active');
+    sprintPanel.style.display = 'none';
+    resetSprintProgress();
+  }
   drillMode = !drillMode;
   resetDrillProgress();
   drillToggle.classList.toggle('active', drillMode);
@@ -671,7 +984,7 @@ difficultToggle.addEventListener('click', () => {
   }
   difficultOnly = !difficultOnly;
   difficultToggle.classList.toggle('active', difficultOnly);
-  if(difficultOnly && !drillMode){
+  if(difficultOnly && !drillMode && !sprintMode){
     drillToggle.click();
   }
   rebuildOrder();
