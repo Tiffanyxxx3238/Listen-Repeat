@@ -6,6 +6,7 @@
 <title>L/R 聽力循環播放</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root{
     --ink:#1c2531;
@@ -333,6 +334,37 @@
     font:11px 'IBM Plex Mono', monospace;
   }
   .rate-btn:hover{ border-color:var(--amber-dim); color:var(--amber); }
+  .sprint-answer{
+    display:none;
+    margin-top:12px;
+    padding:12px;
+    border:1px solid var(--teal);
+    border-radius:4px;
+    background:rgba(92,138,131,.08);
+  }
+  .sprint-answer-title{
+    font-size:10.5px;
+    letter-spacing:.1em;
+    color:var(--teal);
+    margin-bottom:7px;
+  }
+  .sprint-answer-text{
+    font-family:'Fraunces', serif;
+    font-size:16px;
+    line-height:1.55;
+    color:var(--parchment);
+  }
+  .sprint-answer-tools{
+    display:flex;
+    gap:8px;
+    margin-top:10px;
+    flex-wrap:wrap;
+  }
+  .sprint-answer-status{
+    font-size:10.5px;
+    color:var(--parchment-dim);
+    margin-top:7px;
+  }
   .sprint-stats{
     margin-top:10px;
     font-size:10.5px;
@@ -417,6 +449,16 @@
         <span id="noteChars">0 / 30</span>
         <span>1 完整｜2 漏資訊｜3 卡住</span>
       </div>
+      <div class="sprint-answer" id="sprintAnswer">
+        <div class="sprint-answer-title">REFERENCE ANSWER / 原句</div>
+        <div class="sprint-answer-text" id="sprintAnswerText">—</div>
+        <div class="sprint-answer-status" id="sprintAnswerStatus"></div>
+        <div class="sprint-answer-tools">
+          <button class="toggle small" id="answerReplayBtn" type="button">🔊 再聽原句</button>
+          <button class="toggle small" id="loadTranscriptBtn" type="button" style="display:none;">選擇 Transcript Excel</button>
+          <input id="transcriptFileInput" type="file" accept=".xlsx,.xls" style="display:none;">
+        </div>
+      </div>
       <div class="sprint-rating" id="sprintRating">
         <button class="rate-btn" data-rate="1">1 · ✅ 完整講完</button>
         <button class="rate-btn" data-rate="2">2 · 🟡 有漏資訊</button>
@@ -460,6 +502,12 @@ const sprintNote = document.getElementById('sprintNote');
 const noteChars = document.getElementById('noteChars');
 const sprintRating = document.getElementById('sprintRating');
 const sprintStats = document.getElementById('sprintStats');
+const sprintAnswer = document.getElementById('sprintAnswer');
+const sprintAnswerText = document.getElementById('sprintAnswerText');
+const sprintAnswerStatus = document.getElementById('sprintAnswerStatus');
+const answerReplayBtn = document.getElementById('answerReplayBtn');
+const loadTranscriptBtn = document.getElementById('loadTranscriptBtn');
+const transcriptFileInput = document.getElementById('transcriptFileInput');
 const drillBar = document.getElementById('drillBar');
 const drillState = document.getElementById('drillState');
 const hintText = document.getElementById('hintText');
@@ -499,6 +547,9 @@ let sprintPhaseEndAt = 0;
 const NOTE_MS = 2000;
 const SPEAK_MS = 10000;
 let sprintResult = { total:0, ok:0, miss:0, stuck:0 };
+let transcriptMap = new Map();
+let transcriptLoaded = false;
+let transcriptLoadError = '';
 
 const DIFF_KEY = 'lr_difficult_v1';
 let difficultSet = new Set();
@@ -612,6 +663,182 @@ function loadTrack(){
   }
 }
 
+function cleanCell(v){
+  return String(v == null ? '' : v).trim();
+}
+
+function normalizeToken(v){
+  return cleanCell(v).toLowerCase().replace(/\.mp3$/,'').replace(/[^a-z0-9]+/g,'');
+}
+
+function transcriptKey(lesson, seg){
+  return normalizeToken(lesson) + '/' + normalizeToken(seg);
+}
+
+function looksLikeTranscript(v){
+  const x = cleanCell(v);
+  if(x.length < 12) return false;
+  if(!/[A-Za-z]/.test(x)) return false;
+  if(/^(lsn|mock|pt|m)\d+/i.test(x) && x.split(/\s+/).length < 4) return false;
+  return true;
+}
+
+function lessonTokenFromRow(row){
+  for(const raw of row){
+    const x = cleanCell(raw);
+    const m = x.match(/\b(LSN\s*\d+|MOCK\s*\d+|PT\s*\d+|M\s*\d+)\b/i);
+    if(m) return m[1].replace(/\s+/g,'');
+  }
+  return '';
+}
+
+function segTokenFromRow(row){
+  for(const raw of row){
+    const x = cleanCell(raw);
+    if(/^s\d+(?:\.mp3)?$/i.test(x)) return x.replace(/\.mp3$/i,'');
+    if(/^car_seed[^\s]*?(?:\.mp3)?$/i.test(x)) return x.replace(/\.mp3$/i,'');
+  }
+  return '';
+}
+
+function bestTranscriptCell(row, lesson='', seg=''){
+  let best = '';
+  for(const raw of row){
+    const x = cleanCell(raw);
+    if(!looksLikeTranscript(x)) continue;
+    const nx = normalizeToken(x);
+    if(nx === normalizeToken(lesson) || nx === normalizeToken(seg)) continue;
+    if(x.length > best.length) best = x;
+  }
+  return best;
+}
+
+function buildTranscriptMapFromWorkbook(wb){
+  const out = new Map();
+
+  for(const sheetName of wb.SheetNames){
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+    if(!rows.length) continue;
+
+    // Format A: lesson in rows, s1/s2/... in columns.
+    for(let h=0; h<Math.min(rows.length, 12); h++){
+      const header = rows[h].map(cleanCell);
+      const segCols = [];
+      header.forEach((v, idx) => {
+        if(/^s\d+(?:\.mp3)?$/i.test(v) || /^car_seed/i.test(v)){
+          segCols.push([idx, v.replace(/\.mp3$/i,'')]);
+        }
+      });
+      if(segCols.length){
+        for(let r=h+1; r<rows.length; r++){
+          const lesson = lessonTokenFromRow(rows[r]);
+          if(!lesson) continue;
+          for(const [c, seg] of segCols){
+            const val = cleanCell(rows[r][c]);
+            if(looksLikeTranscript(val)){
+              out.set(transcriptKey(lesson, seg), val);
+            }
+          }
+        }
+      }
+    }
+
+    // Format B: lesson + segment + transcript are on the same row.
+    for(const row of rows){
+      const lesson = lessonTokenFromRow(row);
+      const seg = segTokenFromRow(row);
+      if(lesson && seg){
+        const answer = bestTranscriptCell(row, lesson, seg);
+        if(answer) out.set(transcriptKey(lesson, seg), answer);
+      }
+
+      // Format C: one cell contains both identifiers, another contains transcript.
+      for(const raw of row){
+        const idCell = cleanCell(raw);
+        const lessonMatch = idCell.match(/\b(LSN\s*\d+|MOCK\s*\d+|PT\s*\d+|M\s*\d+)\b/i);
+        const segMatch = idCell.match(/\b(s\d+)\b/i);
+        if(lessonMatch && segMatch){
+          const answer = bestTranscriptCell(row, lessonMatch[1], segMatch[1]);
+          if(answer){
+            out.set(transcriptKey(lessonMatch[1].replace(/\s+/g,''), segMatch[1]), answer);
+          }
+        }
+      }
+    }
+  }
+
+  transcriptMap = out;
+  transcriptLoaded = out.size > 0;
+  return out.size;
+}
+
+async function parseTranscriptArrayBuffer(buf){
+  if(typeof XLSX === 'undefined') throw new Error('XLSX parser unavailable');
+  const wb = XLSX.read(buf, {type:'array'});
+  const count = buildTranscriptMapFromWorkbook(wb);
+  if(!count) throw new Error('No transcript rows recognized');
+  return count;
+}
+
+async function autoLoadTranscripts(){
+  try{
+    const res = await fetch('LR_Transcript_tests.xlsx');
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const buf = await res.arrayBuffer();
+    const count = await parseTranscriptArrayBuffer(buf);
+    transcriptLoadError = '';
+    loadTranscriptBtn.style.display = 'none';
+    return count;
+  }catch(e){
+    transcriptLoaded = false;
+    transcriptLoadError = String(e && e.message ? e.message : e);
+    loadTranscriptBtn.style.display = 'inline-block';
+    return 0;
+  }
+}
+
+function currentTranscript(){
+  const path = files[order[pos]];
+  return transcriptMap.get(transcriptKey(lessonOf(path), segOf(path))) || '';
+}
+
+function revealSprintAnswer(){
+  const answer = currentTranscript();
+  sprintAnswer.style.display = 'block';
+  if(answer){
+    sprintAnswerText.textContent = answer;
+    sprintAnswerStatus.textContent = '先比對：你有沒有保留人物／動作／原因／時間或數字等關鍵資訊，再按 1 / 2 / 3。';
+  }else{
+    sprintAnswerText.textContent = '目前找不到這題的 transcript。';
+    sprintAnswerStatus.textContent = transcriptLoaded
+      ? 'Excel 已載入，但這題沒有成功配對。'
+      : '若你是直接雙擊 HTML 開啟，瀏覽器可能禁止讀取旁邊的 Excel；請按「選擇 Transcript Excel」載入一次。';
+    loadTranscriptBtn.style.display = 'inline-block';
+  }
+}
+
+loadTranscriptBtn.addEventListener('click', () => transcriptFileInput.click());
+transcriptFileInput.addEventListener('change', async () => {
+  const file = transcriptFileInput.files && transcriptFileInput.files[0];
+  if(!file) return;
+  try{
+    const count = await parseTranscriptArrayBuffer(await file.arrayBuffer());
+    transcriptLoadError = '';
+    loadTranscriptBtn.style.display = 'none';
+    sprintAnswerStatus.textContent = 'Transcript 已載入，共辨識 ' + count + ' 個答案。';
+    if(sprintPhase === 'rate') revealSprintAnswer();
+  }catch(e){
+    sprintAnswerStatus.textContent = 'Transcript 載入失敗：' + (e.message || e);
+  }
+});
+
+answerReplayBtn.addEventListener('click', () => {
+  if(!sprintMode || sprintPhase !== 'rate') return;
+  audio.currentTime = 0;
+  audio.play();
+});
+
 function stopSprintTimer(){
   clearInterval(sprintTimer);
   sprintTimer = null;
@@ -672,6 +899,9 @@ function startSprintListen(){
   if(!sprintMode) return;
   stopSprintTimer();
   sprintRating.style.display = 'none';
+  sprintAnswer.style.display = 'none';
+  sprintAnswerText.textContent = '—';
+  sprintAnswerStatus.textContent = '';
   sprintNote.value = '';
   noteChars.textContent = '0 / 30';
   sprintNote.disabled = true;
@@ -705,7 +935,8 @@ function startSprintSpeak(){
 function finishSprintSpeak(){
   if(!sprintMode) return;
   sprintBeep(520, .13);
-  setSprintDisplay('rate', '時間到。按 1 / 2 / 3 自評，然後立即進下一題。', '0.0');
+  setSprintDisplay('rate', '時間到。先看原句核對，再按 1 / 2 / 3 自評。', '0.0');
+  revealSprintAnswer();
   sprintRating.style.display = 'grid';
 }
 
@@ -724,6 +955,7 @@ function submitSprintRating(rate){
   }
   updateSprintStats();
   sprintRating.style.display = 'none';
+  sprintAnswer.style.display = 'none';
   sprintNote.disabled = true;
   sprintNote.readOnly = false;
   setSprintDisplay('listen', '下一題…');
@@ -926,7 +1158,7 @@ sprintToggle.addEventListener('click', () => {
   if(sprintMode){
     sprintResult = { total:0, ok:0, miss:0, stuck:0 };
     updateSprintStats();
-    setSprintDisplay('ready', '按播放開始。之後每題：聽一次 → 2 秒筆記 → 10 秒口說 → 1/2/3 自評。');
+    setSprintDisplay('ready', '按播放開始。每題：聽一次 → 2 秒筆記 → 10 秒口說 → 顯示原句 → 1/2/3 自評。');
     hintText.textContent = 'Sprint：音檔只播一次；音檔結束後只有 2 秒記關鍵字，再用 10 秒完成口說。倒數期間不能拖進度、上一題或下一題。';
     if(!audio.paused) startSprintListen();
   } else {
@@ -1039,6 +1271,7 @@ importConfirmBtn.addEventListener('click', () => {
 });
 
 diffCountEl.textContent = difficultSet.size;
+autoLoadTranscripts();
 buildPlaylist();
 loadTrack();
 </script>
