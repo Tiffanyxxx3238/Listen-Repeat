@@ -579,6 +579,7 @@ function buildPlaylist(){
         toggleMark(path);
         return;
       }
+      if(sprintMode) return;
       pos = i; loadTrack(); play();
     });
     playlistEl.appendChild(item);
